@@ -1,0 +1,17 @@
+{
+  "name": "efebia",
+  "version": "1.0.0",
+  "description": "Simple server",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Marcaccio Riccardo",
+  "license": "ISC",
+  "dependencies": {
+    "crypto-js": "^4.1.1",
+    "express": "^4.18.2",
+    "fastify": "^4.15.0",
+    "jsonwebtoken": "^9.0.0"
+  }
+}
