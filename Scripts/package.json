@@ -9,6 +9,7 @@
   "author": "Marcaccio Riccardo",
   "license": "ISC",
   "dependencies": {
+    "async-lock": "^1.4.0",
     "crypto-js": "^4.1.1",
     "express": "^4.18.2",
     "fastify": "^4.15.0",
