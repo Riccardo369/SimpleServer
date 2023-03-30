@@ -102,8 +102,10 @@ async function LoginByToken(token){
 }
 
 //Chiamata
-//Funzione che si occupa di fare un back-up dei tokens in modo asincrono ciclicamente (dopo tot tempo)
+//Funzione che si occupa di fare un back-up dei tokens in modo asincrono ciclicamente (dopo tot tempo)   (Da rivedere)
 async function TokensBackUp(){
+
+  console.log("Back up tokens");
 
   let Data;
   var Completed = true;
@@ -118,9 +120,11 @@ async function TokensBackUp(){
 }
 
 //Chiamata
-//Funzione che si occupa di cancellare i dati residui
+//Funzione che si occupa di cancellare i dati residui ciclicamente
 //Se c'è una cartella che non si è riusciti a cancellare, lancia un errore
 async function ClearData(){
+
+  console.log("Clear data");
 
   var Error;
 
@@ -618,6 +622,7 @@ fastify.route({
 
 });
 
+
 //Tutto sequenziale (il server non è ancora partito)
 
 //Creo le cartelle che mi servono per il server
@@ -632,9 +637,13 @@ lock.acquire('mutex', async () => { StartClearData(); });
 //Tutto asincrono (il server è partito)
 
 //Apro la porta di ascolto
-fastify.listen(3000, function(err, addr) {
+fastify.listen({port: 3000}, (err, addr) => {
 
   if(err) console.error("Errore, il server non parte: "+err);
   else console.log(`Server in ascolto su `+addr);
+
+  //Funzioni che vengono eseguite in modo ciclico dopo tot tempo
+  setInterval(TokensBackUp, 5*60*1000);
+  setInterval(ClearData, 2*60*1000);
 
 });
