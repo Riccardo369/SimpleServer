@@ -8,6 +8,7 @@ const AsyncLock = require('async-lock');
 //Oggetto che blocca e sblocca un singolo thread alla volta
 const lock = new AsyncLock();
 
+//Variabile usata da "rimbalzo" per la funzione "LoginByToken"
 var AccountByToken;
 
 //Trasformo una stringa nel suo hash attraverso la conversione SHA256
@@ -49,17 +50,12 @@ un dato con quella key di quell' account.
 */
 async function ValidKey(Account, Key){
 
-  var Result = false;;
+  try{
+    fs.statSync("JSON set/Data/"+Account+"/"+Key+".txt");
+    return true;
+  }
 
-  await lock.acquire('mutex', async () => {
-
-    fs.stat("JSON set/Data/"+Account+"/"+Key, (err) => {
-      if(err) Result = true;
-    });
-
-  });
-
-  return Result;
+  catch(err) { return false; }
 
 }
 
@@ -67,11 +63,10 @@ async function ValidKey(Account, Key){
 async function ValidToken(Token){
 
   //Ottengo il TimeStamp attuale
-  let TimeNow;
-  await lock.acquire('mutex', async () => { TimeNow = new Date().getTime(); });
+  let TimeNow = new Date().getTime(); 
 
   //Decodifico il token e gli prendo la data di scadenza. Essendo che mancano i secondi, paragonandoli al tempo attuale, gli aggiungo 3 zeri
-  const ExpToken = parseInt(jwt.decode(token).exp.toString()+"000");
+  const ExpToken = parseInt(jwt.decode(Token).exp.toString()+"000");
 
   //Ridò la condizione di ritorno (se il token non è ancora scaduto)
   return ExpToken >= TimeNow;
@@ -81,17 +76,11 @@ async function ValidToken(Token){
 //Controlla se esiste un account con questa email
 async function CheckAccount(email){
 
-  let Result = false;
-
-  await lock.acquire('mutex', async () => {
-
-    fs.stat('JSON set/Accounts/'+email, (err, stats) => {
-      if(err) Result = true;
-    });
-
-  });
-
-  return Result;
+  try{
+    fs.accessSync("JSON set/Accounts/"+email+".json");
+    return true;
+  }
+  catch(err) { return false; }
 
 }
 
@@ -102,19 +91,13 @@ Internal Error = Non esiste nessun account con questo token*/
 async function LoginByToken(token){
 
   //Se il token è scaduto ridò una stringa
-  if(await ValidToken(token)){
-    res.status(403).send("Il token è scaduto");
-    throw new RangeError("Il token è scaduto");
-  }
+  if(!(await ValidToken(token))) throw new RangeError("Il token è scaduto");
 
   //Trovo l' account che mi serve
   AccountByToken = ActualTokens[token];
 
   //Se non ho trovato l' account dal dizionario, o non esiste proprio quell' account ridò una stringa vuota
-  if(AccountByToken === undefined || !(await CheckAccount(AccountByToken))){
-    res.status(403).send("Nessun account autenticato con questo token");
-    throw new InternalError("Nessun account autenticato con questo token");
-  }
+  if(AccountByToken === undefined || !(await CheckAccount(AccountByToken))) throw new InternalError("Nessun account autenticato con questo token");
 
 }
 
@@ -193,20 +176,51 @@ function LoadTokens(){
   return Result;
 }
 
+//Funzione che cancella i dati residui ancor prima che parte il server, prepara già la lista dei dati da cancellare
+async function StartClearData(){
+
+  try{
+
+    //Mi prendo la lista delle cartelle ancora presenti
+    const Dati = fs.readdirSync("JSON set/Data");
+
+    //Per ogni cartella di dati
+    for(let i=0; i<Dati.length; i++){
+
+      //Se non esiste più quell' account, cancello la cartella di file
+      if(!(await CheckAccount(Dati[i]))){
+
+        //Se è andato tutto bene vado avanti
+        try{ fs.unlinkSync("JSON set/Data/"+Dati[i]+".json"); }
+
+        //Altrimenti aggiungo il nome alla lista delle cartelle di file da cancellare
+        catch(err) { DataToDelete.push(Dati[i]); }
+ 
+      }
+    }
+
+  }
+  catch(err) {}
+
+}
+
 //Mi segno i token presenti
 var ActualTokens = {};
 
 //Mi segno i dati da cancellare
 var DataToDelete = [];
 
-// Gestione della richiesta POST/register  -  Registra un nuovo utente    
+// Gestione della richiesta POST/register  -  Registra un nuovo utente       Testato   
 fastify.route({
 
   method: "POST",
   path: "/register",
   handler: async (req, res) => {
 
-    const { email, password } = req.body;
+    console.log("Richiesta POST/register");
+
+    const email = req.query["email"];
+    const password = req.query["password"];
 
     //Ridò un errore di sintassi
     if(email === "" || password === ""){
@@ -214,8 +228,8 @@ fastify.route({
       return;
     }
 
-    //Se l' account non esiste
-    if(!(await CheckAccount(email))){
+    //Se l' account già esiste
+    if(await CheckAccount(email)){
       res.status(403).send('Il tuo account è già presente');
       return;
     }
@@ -238,28 +252,36 @@ fastify.route({
     const NewData = JSON.stringify(data);
 
     await lock.acquire('mutex', async () => {
-    
-      fs.writeFile("JSON set/Accounts/"+email+".json", NewData, (error) => {
 
-        if(error) res.status(500).send('Si è verificato un errore durante la registrazione del tuo account');
-        else res.status(200).send('Account registrato');
+      try{
+        fs.mkdirSync("JSON set/Data/"+email);
+        fs.writeFileSync("JSON set/Accounts/"+email+".json", NewData);
+        
+        res.status(200).send("Account registrato");
+      }
+      catch(err){
 
-      });
+        res.status(500).send('Si è verificato un errore durante la registrazione del tuo account'); }
 
     });
+
+    console.log("Account creato");
 
   }
 
 });
 
-// Gestione della richiesta POST/login  -  Effettua login e riceve in risposta il JWT
+// Gestione della richiesta POST/login  -  Effettua login e riceve in risposta il JWT      Testato
 fastify.route({
 
   method: "POST",
   path: "/login",
   handler: async(req, res) => {
 
-    const { email, password } = req.body;
+    console.log("Richiesta POST/login");
+
+    const email = req.query["email"];
+    const password = req.query["password"];
 
     //Se non è stato trovato il file dell' account
     if(!(await CheckAccount(email))){
@@ -267,17 +289,14 @@ fastify.route({
       return;
     }
 
-    let Data;
+    var Data;
 
     var Error = false;
 
     await lock.acquire('mutex', async () => {
 
-      //Leggo il file dell' account
-      fs.readFile("JSON set/Accounts/"+email+".json", 'utf8', (err, data) => { 
-        if(err) Error = true; 
-        else Data = data;
-      });
+      try{ Data = fs.readFileSync("JSON set/Accounts/"+email+".json", 'utf8'); }
+      catch(err) { Error = true; }
 
     });
 
@@ -287,7 +306,8 @@ fastify.route({
     }
 
     //Estraggo i dati dal file JSON per comparare la password
-    Data = JSON.parse(data);
+    Data = JSON.parse(Data);
+
     if(Data.password !== SHA256Encode(password)){
       res.status(403).send('Credenziali errate');
       return;
@@ -299,11 +319,11 @@ fastify.route({
       //Creo il token
       const Token = CreateJWT(email, Data.password);
 
-      //Mi prendo l' email
-      ActualTokens.Token = email;
+      //Aggiungo il token all' account
+      ActualTokens[Token] = email;
 
       //Setto il token nell' header "Authorization"
-      res.setHeader('Authorization', "Bearer "+Token);
+      res.header('Authorization', Token);
 
       //Invio la risposta
       res.status(200).send("Account riconosciuto");
@@ -315,15 +335,17 @@ fastify.route({
 
 });
 
-//Gestione della richiesta *DELETE/delete  -  Elimina l’utente attualmente loggato
+//Gestione della richiesta *DELETE/delete  -  Elimina l’utente attualmente loggato       Testato
 fastify.route({
 
   method: "DELETE",
   path: "/delete",
   handler: async(req, res) => {
 
+    console.log("Richiesta DELETE/delete");
+
     //Tiro fuori il mio token
-    var Token = req.header('Authorization').replace('Bearer ', '');
+    var Token = req.headers.authorization;
 
     let Account;
 
@@ -337,76 +359,51 @@ fastify.route({
 
     }
 
-    catch(err){ return; }
+    catch(err){
+      res.status(403).send("Il token è scaduto o non è stato autenticato nessun account con questo token"); 
+      return;
+    }
 
-    var Error = false;
     var Email;
     var Password;
 
     //Leggo i dati che mi serviranno per un eventuale rollback
-    await lock.acquire('mutex', async () => { 
-
-      fs.readFile("JSON set/Accounts/"+Account+".json", (err, data) => {
-
-        if(err) Error = true;
-
-        else{
-
-          const Dict = JSON.parse(data.toString());
-
-          Email = Dict.email;
-          Password = Dict.Password;
-        }
-
-      });
-
-    });
-
-    if(Error){
+    try{
+      const Dict = JSON.parse(fs.readFileSync("JSON set/Accounts/"+Account+".json").toString());
+      Email = Dict["email"];
+      Password = Dict["password"];
+    }
+    catch(err) { 
       res.status(500).send("Errore durante l' eliminazione del tuo account");
       return;
     }
 
-    await lock.acquire('mutex', async () => { 
+    const path = "JSON set/Accounts/"+Account+".json";
 
-      //Cancello l' account
-      fs.unlink("JSON set/Accounts/"+Account+".json", (err) => {
-        if(err) Error = true;
-      });
+    console.log(path);
 
-    });
-
-    if(Error){
+    //Cancello l' account
+    try{ fs.unlinkSync(path); }
+    catch(err) { 
       res.status(500).send("Errore durante l' eliminazione del tuo account");
       return;
     }
 
-    await lock.acquire('mutex', async () => { 
+    //Cancello la cartella
+    try{ fs.rmSync("JSON set/Data/"+Account, {recursive: true }); }
+    catch(err){
 
-      //Cancello i dati salvati dall' account
-      fs.rmdir("JSON set/Data/"+Account, { recursive: true }, (err) => {
-        if(err) Error = true;
-      });
-
-    });
-
-    if(Error){
-
-      await lock.acquire('mutex', async () => { 
-
-        //Cerco di fare il rollback dell' account. Se non il rollback non viene, ci pensa la funzione ClearData a pulire i dati
-        fs.writeFile("JSON set/Accounts/"+Account+".json", JSON.stringify({email: Email, password: Password}), (err) => {
-          if(err) DataToDelete.push(Account);  
-        });
-
-      });
+      //Faccio il rollback nel caso in cui non riesco a cancellare la cartella
+      try{ fs.writeFileSync("JSON set/Accounts/"+Account+".json", JSON.stringify({email: Email, password: Password})); }
+      catch(err){ DataToDelete.push(Account); }
 
     }
 
     //Cancello il token dell' account dal dizionario
-    delete ActualTokens.Token;
+    delete ActualTokens[Token];
 
-    //Tutto ok
+    //console.log("Acccount "+Account+" eliminato");
+
     res.status(200).send("Il tuo account è stato eliminato con successo");
     return;
 
@@ -414,18 +411,20 @@ fastify.route({
   
 });
 
-//Gestione della richiesta *POST/data  -  Carica dei dati nuovi
+//Gestione della richiesta *POST/data  -  Carica dei dati nuovi          Testato     
 fastify.route({
 
   method: "POST",
   path: "/data",
   handler: async(req, res) => {
 
-    const Data = req.params.data;
-    const Key = req.params.key;
+    console.log("Richiesta POST/data");
+
+    const Data = req.query["value"];
+    const Key = req.query["key"];
 
     //Tiro fuori il mio token
-    var Token = req.header('Authorization').replace('Bearer ', '');
+    var Token = req.headers.authorization;
 
     let Account;
 
@@ -439,41 +438,48 @@ fastify.route({
 
     }
 
-    catch(err){ return; }
+    catch(err){
+      res.status(403).send("Autenticazione attraverso il token fallita");
+      return;
+    }
+
+    console.log(Account);
+    console.log(Key);
 
     //Se esiste già la chiave, ridò errore
-    if(!(await ValidKey(Account, Key))){
+    if(await ValidKey(Account, Key)){
       res.status(403).send("Esiste già un dato con quella chiave");
       return;
     }
 
-    await lock.acquire("mutex", async () => {
+    //Gestisci la richiesta POST/data
 
-      //Gestisci la richiesta POST/data
-      fs.writeFile("JSON set/Data/"+Account+"/"+Key, Data, (err) => {
+    try{
+      fs.writeFileSync("JSON set/Data/"+Account+"/"+Key+".txt", Data);
+      res.status(200).send("Il tuo dato è stato creato con successo");
+    }
 
-        if(err) res.status(500).send("Problemi interni durante la creazione del tuo nuovo file");
-        else res.status(200).send("Il tuo dato è stato creato con successo");
-
-      });
-
-    });
+    catch(err) { res.status(500).send("Problemi interni durante la creazione del tuo nuovo file"); }
 
   }
 
 });
 
-//Gestione della richiesta *GET/data/:key  -  Ritorna i dati corrispondenti alla chiave   (FINIRE)
+//Gestione della richiesta *GET/data/:key  -  Ritorna i dati corrispondenti alla chiave       Testato
 fastify.route({
 
   method: "GET",
   path: "/data/:key",
   handler: async(req, res) => {
 
-    const key = req.params.key;
+    console.log("GET/data/:key");
+
+    //console.log(req.params);
+
+    const Key = req.params["key"];
 
     //Tiro fuori il mio token
-    var Token = req.header('Authorization').replace('Bearer ', '');
+    var Token = req.headers.authorization;
 
     let Account;
 
@@ -487,51 +493,45 @@ fastify.route({
 
     }
 
-    catch(err){ return; }
+    catch(err){
+      res.status(403).send("Autenticazione con questo token fallita");
+      return; 
+    }
 
     //Gestisci la richiesta GET/data/:key
 
-    //Se esiste già la chiave
+    //Se non esiste ancora la chiave
     if(!(await ValidKey(Account, Key))){
       res.status(404).send("Non esiste un dato con quella chiave");
       return;
     }
 
-    await lock.acquire('mutex', async () => {
+    try{
+      const Data =  fs.readFileSync('JSON set/Data/'+Account+"/"+Key+".txt", "UTF-8");
+      res.status(200).send(Data.toString());
+    }
 
-      //Tiro fuori il valore del dato
-      fs.readFile('JSON set/Data/'+Account+"/"+Key, (err, data) => {
+    catch(err) { res.status(500).send("Errore interno nel prelevare il tuo dato"); }
 
-        if(err) res.status(500).send("Errore interno nel prelevare il tuo dato");
-
-        else{
-
-          //Invio il valore al client (FARE)
-
-
-          res.status(200).send(data.toString());
-        }
-        
-      });
-
-    });
 
   }
 
 });
 
-//Gestione della richiesta *PATCH/data/:key  -  Aggiorna i dati corrispondenti alla chiave
+//Gestione della richiesta *PATCH/data/:key  -  Aggiorna i dati corrispondenti alla chiave      Testato
 fastify.route({
 
   method: "PATCH",
   path: "/data/:key",
   handler: async(req, res) => {
 
-    const Data = req.params.data;
-    const Key = req.params.key;
+    console.log("PATCH/data/:key");
+
+    const Data = req.query["value"];
+    const Key = req.params["key"];
 
     //Tiro fuori il mio token
-    var Token = req.header('Authorization').replace('Bearer ', '');
+    var Token = req.headers.authorization;
 
     let Account;
 
@@ -545,7 +545,10 @@ fastify.route({
 
     }
 
-    catch(err){ return; }
+    catch(err){
+      res.status(403).send("Autenticazione fallita con questo token");
+      return;
+    }
 
     //Se non esiste ancora la chiave, ridò errore
     if(!(await ValidKey(Account, Key))){
@@ -553,33 +556,32 @@ fastify.route({
       return;
     }
 
-    await lock.acquire('mutex', async () => {
+    try{
 
-      //Gestisci la richiesta PATCH/data/:key
-      fs.writeFile("JSON set/Data/"+Account+"/"+Key, Data, (err) => {
+      fs.writeFileSync("JSON set/Data/"+Account+"/"+Key+".txt", Data); 
+      res.status(200).send("Il tuo dato è stato aggiornato con successo");
 
-        if(err) res.status(500).send("Problemi interni durante l' aggiornamento del tuo dato");
-        else res.status(200).send("Il tuo dato è stato aggiornato con successo");
+    }
 
-      });
-
-    });
+    catch(err){ res.status(500).send("Problemi interni durante l' aggiornamento del tuo dato"); }
 
   }
   
 });
 
-//Gestione della richiesta *DELETE/data/:key  -  Elimina i dati corrispondenti alla chiave
+//Gestione della richiesta *DELETE/data/:key  -  Elimina i dati corrispondenti alla chiave      Testato
 fastify.route({
 
   method: "DELETE",
   path: "/data/:key",
   handler:async(req, res) => {
 
-    const key = req.params.key;
+    console.log("DELETE/data/:key");
+
+    const Key = req.params["key"];
 
     //Tiro fuori il mio token
-    var Token = req.header('Authorization').replace('Bearer ', '');
+    var Token = req.headers.authorization;
 
     let Account;
 
@@ -593,7 +595,10 @@ fastify.route({
 
     }
 
-    catch(err){ return; }
+    catch(err){
+      res.status(403).send("Autenticazione fallita con questo token");
+      return;
+    }
 
     //Se non esiste ancora la chiave, ridò errore
     if(!(await ValidKey(Account, Key))){
@@ -601,17 +606,13 @@ fastify.route({
       return;
     }
 
-    await lock.acquire('mutex', async () => {
+    //Cancello il dato attraverso la chiave
+    try{
+      fs.unlinkSync("JSON set/Data/"+Account+"/"+Key+".txt");
+      res.status(200).send("Eliminazione del tuo dato eseguita correttamente");
+    }
 
-      //Gestisci la richiesta DELETE/data/:key
-      fs.unlink("JSON set/Data/"+Account+"/"+Key, (err) => {
-
-        if(err) res.status(500).send("Errore durante l' eliminazione del tuo dato");
-        else res.status(200).send("Eliminazione del tuo dato eseguita correttamente");
-
-      });
-
-    });
+    catch(err) { res.status(500).send("Errore durante l' eliminazione del tuo dato"); }
 
   }
 
@@ -619,22 +620,21 @@ fastify.route({
 
 //Tutto sequenziale (il server non è ancora partito)
 
-console.log("Creazione cartelle e file per il server");
-
 //Creo le cartelle che mi servono per il server
-while(!CreateServer()){ console.log("Tentativo di creazione server fallito"); }
-
-console.log("Caricamento dei JWT del server");
+CreateServer();
 
 //Carico i JWT
-while(!LoadTokens()){ console.log("Tentativo di caricamento dei JWT fallito"); }
+LoadTokens();
 
-console.log(!CheckAccount("eee"));
+//Cancello i dati rimasti residui
+lock.acquire('mutex', async () => { StartClearData(); });
 
 //Tutto asincrono (il server è partito)
 
 //Apro la porta di ascolto
-/*fastify.listen(3000, function(err, addr) {
+fastify.listen(3000, function(err, addr) {
+
   if(err) console.error("Errore, il server non parte: "+err);
   else console.log(`Server in ascolto su `+addr);
-});*/
+
+});
