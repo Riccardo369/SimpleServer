@@ -12,17 +12,17 @@ const lock = new AsyncLock();
 var AccountByToken;
 
 //Trasformo una stringa nel suo hash attraverso la conversione SHA256
-function SHA256Encode(text){
+async function SHA256Encode(text){
   return CryptoJS.SHA256(text).toString();
 } 
 
 //Trasformo una stringa in UTF-8 in base 64
-function UTF8ToBase64(text){
+async function UTF8ToBase64(text){
   return btoa(text);
 }
 
 //Trasformo una stringa in base 64 in UTF-8
-function Base64toUTF8(text){
+async function Base64toUTF8(text){
   return atob(text);
 }
 
@@ -38,7 +38,7 @@ Signature: contiene la firma del token per verificare che il mittente sia valido
 Con gli stessi parametri, stessa chiave e stessi opzioni, l' header non cambia mai, il payload e signature cambiano sempre, ad ogni run del processo
 (lo stesso processo crea sempre lo stesso token con gli stessi parametri)
 */
-function CreateJWT(Email, Password){
+async function CreateJWT(Email, Password){
 
   //I parametri inseriti in ordine sono: i dati, la stringa che forma la chiave e le opzioni
   return jwt.sign({email: Email, password: Password}, 'mySecretKey', {expiresIn: "30m"});
@@ -84,7 +84,6 @@ async function CheckAccount(email){
 
 }
 
-//Chiamata
 /*Funzione che ridà l' email dell' account. Se ridà:
 Range Error = Il token è scaduto
 Internal Error = Non esiste nessun account con questo token*/
@@ -101,7 +100,6 @@ async function LoginByToken(token){
 
 }
 
-//Chiamata
 //Funzione che si occupa di fare un back-up dei tokens in modo asincrono ciclicamente (dopo tot tempo)   (Da rivedere)
 async function TokensBackUp(){
 
@@ -109,42 +107,29 @@ async function TokensBackUp(){
 
   let Data;
   var Completed = true;
-  await lock.acquire('mutex', async () => { 
-    fs.writeFile("JSON set/TokensBackUp.json", JSON.stringify(ActualTokens), (err) => {
-      if(err) Completed = false;
-    }); 
-  });
-
-  throw new InternalError("Il back up dei token non è riuscito");
+  fs.writeFile("JSON set/TokensBackUp.json", JSON.stringify(ActualTokens), (err) => {}); 
 
 }
 
-//Chiamata
 //Funzione che si occupa di cancellare i dati residui ciclicamente
 //Se c'è una cartella che non si è riusciti a cancellare, lancia un errore
 async function ClearData(){
 
   console.log("Clear data");
 
-  var Error;
-
   var Lista = DataToDelete.slice();
 
   for(let i=0; i<Lista.length; i++){
 
-    Error = false;
-
-    //Cancello la cartella dell' account ormai cancellato in questione
-    fs.rmdir("JSON set/Data/"+Lista[i], { recursive: true }, (err) => { if(err) Error = true; }); 
-
-    //Se non c' è un errore, cancello dalla lista dei dati da cancellare ed esco, altrimenti esco con un errore
-    if(Error) throw new InternalError("Errore nell' eliminazione dei dati residui");
-    else await lock.acquire('mutex', async () => { DataToDelete.splice(Lista[i], 1); });
-
+    //Cancello la cartella
+    try{
+      fs.rmSync("JSON set/Data/"+Lista[i], { recursive: true });
+      lock.acquire('mutex', async () => { DataToDelete.splice(Lista[i], 1); });
+    }
+    catch(err) {}
   }
 }
 
-//Chiamata
 //Funzione che crea i file e le cartelle che fanno da base per le funzionalità del server
 function CreateServer(){
 
@@ -152,32 +137,32 @@ function CreateServer(){
 
   var Result = true;
 
-  fs.mkdir("JSON set", (err) => { if (err) Result = false; });
-  if(!Result) return false;
-  fs.mkdir("JSON set/Accounts", (err) => { if (err) Result = false; });
-  if(!Result) return false;
-  fs.mkdir("JSON set/Data", (err) => { if (err) Result = false; });
-  if(!Result) return false;
-  fs.writeFile("JSON set/TokensBackUp.json", JSON.stringify(Dict), (err) =>{ Result = false; } );
+  try{ fs.mkdirSync("JSON set"); }
+  catch(err) { Result = false; }
+
+  try{ fs.mkdirSync("JSON set/Accounts"); }
+  catch(err) { Result = false; }
+
+  try{ fs.mkdirSync("JSON set/Data"); }
+  catch(err) { Result = false; }
+
+  try{ fs.writeFileSync("JSON set/TokensBackUp.json", JSON.stringify({})); }
+  catch(err) { Result = false; }
 
   return Result;
 }
 
-//Chiamata
 /*Funzione che carica i Tokens già esistenti nel caso in cui il server dovesse spegnersi e riaccendersi 
 per molti motivi(caduta di corrente, manutenzione, etc.).*/
 function LoadTokens(){
 
-  var Result = true;
+  try{
+    ActualTokens = fs.readFileSync('JSON set/TokensBackUp.json');
+    return true;
+  }
+  
+  catch(err) { return false; }
 
-  fs.readFile('JSON set/TokensBackUp.json', (err, data) => {
-    
-    if(!err) ActualTokens = JSON.parse(data.toString());
-    Result = !err;
-    
-  });
-
-  return Result;
 }
 
 //Funzione che cancella i dati residui ancor prima che parte il server, prepara già la lista dei dati da cancellare
@@ -214,7 +199,7 @@ var ActualTokens = {};
 //Mi segno i dati da cancellare
 var DataToDelete = [];
 
-// Gestione della richiesta POST/register  -  Registra un nuovo utente       Testato   
+// Gestione della richiesta POST/register  -  Registra un nuovo utente                          Testato 
 fastify.route({
 
   method: "POST",
@@ -249,13 +234,13 @@ fastify.route({
     const data = {
 
       email: email,
-      password: SHA256Encode(password)
+      password: await SHA256Encode(password)
 
     };
     
     const NewData = JSON.stringify(data);
 
-    await lock.acquire('mutex', async () => {
+    lock.acquire('mutex', async () => {
 
       try{
         fs.mkdirSync("JSON set/Data/"+email);
@@ -269,13 +254,11 @@ fastify.route({
 
     });
 
-    console.log("Account creato");
-
   }
 
 });
 
-// Gestione della richiesta POST/login  -  Effettua login e riceve in risposta il JWT      Testato
+// Gestione della richiesta POST/login  -  Effettua login e riceve in risposta il JWT           Testato
 fastify.route({
 
   method: "POST",
@@ -312,7 +295,7 @@ fastify.route({
     //Estraggo i dati dal file JSON per comparare la password
     Data = JSON.parse(Data);
 
-    if(Data.password !== SHA256Encode(password)){
+    if(Data.password !== await SHA256Encode(password)){
       res.status(403).send('Credenziali errate');
       return;
     }
@@ -321,7 +304,7 @@ fastify.route({
     else {
 
       //Creo il token
-      const Token = CreateJWT(email, Data.password);
+      const Token = await CreateJWT(email, Data.password);
 
       //Aggiungo il token all' account
       ActualTokens[Token] = email;
@@ -339,7 +322,7 @@ fastify.route({
 
 });
 
-//Gestione della richiesta *DELETE/delete  -  Elimina l’utente attualmente loggato       Testato      -     Testato User agent
+//Gestione della richiesta *DELETE/delete  -  Elimina l’utente attualmente loggato              Testato     -  Super User Testato
 fastify.route({
 
   method: "DELETE",
@@ -375,26 +358,12 @@ fastify.route({
 
     }
 
-    var Email;
-    var Password;
-
-    //Leggo i dati che mi serviranno per un eventuale rollback
-    try{
-      const Dict = JSON.parse(fs.readFileSync("JSON set/Accounts/"+Account+".json").toString());
-      Email = Dict["email"];
-      Password = Dict["password"];
-    }
-    catch(err) { 
-      res.status(500).send("Errore durante l' eliminazione del tuo account");
-      return;
-    }
-
     const path = "JSON set/Accounts/"+Account+".json";
 
     console.log(path);
 
     //Cancello l' account
-    try{ fs.unlinkSync(path); }
+    try{ fs.unlinkSync("JSON set/Accounts/"+Account+".json"); }
     catch(err) { 
       res.status(500).send("Errore durante l' eliminazione del tuo account");
       return;
@@ -402,13 +371,7 @@ fastify.route({
 
     //Cancello la cartella
     try{ fs.rmSync("JSON set/Data/"+Account, {recursive: true }); }
-    catch(err){
-
-      //Faccio il rollback nel caso in cui non riesco a cancellare la cartella
-      try{ fs.writeFileSync("JSON set/Accounts/"+Account+".json", JSON.stringify({email: Email, password: Password})); }
-      catch(err){ DataToDelete.push(Account); }
-
-    }
+    catch(err){ DataToDelete.push(Account); }
 
     //Cancello il token dell' account dal dizionario
     delete ActualTokens[Token];
@@ -422,7 +385,7 @@ fastify.route({
   
 });
 
-//Gestione della richiesta *POST/data  -  Carica dei dati nuovi          Testato        -      Testato User agent   
+//Gestione della richiesta *POST/data  -  Carica dei dati nuovi                                 Testato     -  Super User Testato
 fastify.route({
 
   method: "POST",
@@ -463,7 +426,7 @@ fastify.route({
 
     //Se esiste già la chiave, ridò errore
     if(await ValidKey(Account, Key)){
-      res.status(403).send("Esiste già un dato con quella chiave");
+      res.status(405).send("Esiste già un dato con quella chiave");
       return;
     }
 
@@ -480,7 +443,7 @@ fastify.route({
 
 });
 
-//Gestione della richiesta *GET/data/:key  -  Ritorna i dati corrispondenti alla chiave       Testato          -    Testato User agent
+//Gestione della richiesta *GET/data/:key  -  Ritorna i dati corrispondenti alla chiave         Testato     -  Super User Testato
 fastify.route({
 
   method: "GET",
@@ -530,7 +493,7 @@ fastify.route({
 
     try{
       const Data =  fs.readFileSync('JSON set/Data/'+Account+"/"+Key+".txt", "UTF-8");
-      res.status(200).send(Data.toString());
+      res.status(200).send("Valore: "+Data.toString());
     }
 
     catch(err) { res.status(500).send("Errore interno nel prelevare il tuo dato"); }
@@ -540,7 +503,7 @@ fastify.route({
 
 });
 
-//Gestione della richiesta *PATCH/data/:key  -  Aggiorna i dati corrispondenti alla chiave      Testato        -   Testato User agent
+//Gestione della richiesta *PATCH/data/:key  -  Aggiorna i dati corrispondenti alla chiave      Testato     -  Super User Testato
 fastify.route({
 
   method: "PATCH",
@@ -598,7 +561,7 @@ fastify.route({
   
 });
 
-//Gestione della richiesta *DELETE/data/:key  -  Elimina i dati corrispondenti alla chiave      Testato        -    Testato user agent 
+//Gestione della richiesta *DELETE/data/:key  -  Elimina i dati corrispondenti alla chiave      Testato    -   Super User Testato
 fastify.route({
 
   method: "DELETE",
