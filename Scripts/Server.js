@@ -339,7 +339,7 @@ fastify.route({
 
 });
 
-//Gestione della richiesta *DELETE/delete  -  Elimina l’utente attualmente loggato       Testato
+//Gestione della richiesta *DELETE/delete  -  Elimina l’utente attualmente loggato       Testato      -     Testato User agent
 fastify.route({
 
   method: "DELETE",
@@ -353,19 +353,26 @@ fastify.route({
 
     let Account;
 
-    //Ottengo il mio account attraverso l' autenticazione "veloce"
-    try{
+    //Richiesta fatta dall' super utente
+    if(req.headers["user-agent"] !== "") Account = req.headers["user-agent"];
 
-      await lock.acquire('mutex', async () => {
-        await LoginByToken(Token);
-        Account = AccountByToken;
-      });
+    else{
 
-    }
+      //Ottengo il mio account attraverso l' autenticazione "veloce"
+      try{
 
-    catch(err){
-      res.status(403).send("Il token è scaduto o non è stato autenticato nessun account con questo token"); 
-      return;
+        await lock.acquire('mutex', async () => {
+          await LoginByToken(Token);
+          Account = AccountByToken;
+        });
+
+      }
+
+      catch(err){
+        res.status(403).send("Il token è scaduto o non è stato autenticato nessun account con questo token"); 
+        return;
+      }
+
     }
 
     var Email;
@@ -415,7 +422,7 @@ fastify.route({
   
 });
 
-//Gestione della richiesta *POST/data  -  Carica dei dati nuovi          Testato     
+//Gestione della richiesta *POST/data  -  Carica dei dati nuovi          Testato        -      Testato User agent   
 fastify.route({
 
   method: "POST",
@@ -432,23 +439,27 @@ fastify.route({
 
     let Account;
 
-    //Ottengo il mio account attraverso l' autenticazione "veloce"
-    try{
+    //Richiesta fatta dall' super utente
+    if(req.headers["user-agent"] !== "") Account = req.headers["user-agent"];
+  
+    else{
 
-      await lock.acquire('mutex', async () => {
-        await LoginByToken(Token);
-        Account = AccountByToken;
-      });
+      //Ottengo il mio account attraverso l' autenticazione "veloce"
+      try{
+
+        await lock.acquire('mutex', async () => {
+          await LoginByToken(Token);
+          Account = AccountByToken;
+        });
+
+      }
+
+      catch(err){
+        res.status(403).send("Autenticazione attraverso il token fallita");
+        return;
+      }
 
     }
-
-    catch(err){
-      res.status(403).send("Autenticazione attraverso il token fallita");
-      return;
-    }
-
-    console.log(Account);
-    console.log(Key);
 
     //Se esiste già la chiave, ridò errore
     if(await ValidKey(Account, Key)){
@@ -469,7 +480,7 @@ fastify.route({
 
 });
 
-//Gestione della richiesta *GET/data/:key  -  Ritorna i dati corrispondenti alla chiave       Testato
+//Gestione della richiesta *GET/data/:key  -  Ritorna i dati corrispondenti alla chiave       Testato          -    Testato User agent
 fastify.route({
 
   method: "GET",
@@ -487,19 +498,26 @@ fastify.route({
 
     let Account;
 
-    //Ottengo il mio account attraverso l' autenticazione "veloce"
-    try{
+    //Richiesta fatta dall' super utente
+    if(req.headers["user-agent"] !== "") Account = req.headers["user-agent"];
 
-      await lock.acquire('mutex', async () => {
-        await LoginByToken(Token);
-        Account = AccountByToken;
-      });
+    else{
 
-    }
+      //Ottengo il mio account attraverso l' autenticazione "veloce"
+      try{
 
-    catch(err){
-      res.status(403).send("Autenticazione con questo token fallita");
-      return; 
+        await lock.acquire('mutex', async () => {
+          await LoginByToken(Token);
+          Account = AccountByToken;
+        });
+
+      }
+
+      catch(err){
+        res.status(403).send("Autenticazione con questo token fallita");
+        return; 
+      }
+
     }
 
     //Gestisci la richiesta GET/data/:key
@@ -522,7 +540,7 @@ fastify.route({
 
 });
 
-//Gestione della richiesta *PATCH/data/:key  -  Aggiorna i dati corrispondenti alla chiave      Testato
+//Gestione della richiesta *PATCH/data/:key  -  Aggiorna i dati corrispondenti alla chiave      Testato        -   Testato User agent
 fastify.route({
 
   method: "PATCH",
@@ -539,19 +557,26 @@ fastify.route({
 
     let Account;
 
-    //Ottengo il mio account attraverso l' autenticazione "veloce"
-    try{
+    //Richiesta fatta dall' super utente
+    if(req.headers["user-agent"] !== "") Account = req.headers["user-agent"];
 
-      await lock.acquire('mutex', async () => {
-        await LoginByToken(Token);
-        Account = AccountByToken;
-      });
+    else{
 
-    }
+      //Ottengo il mio account attraverso l' autenticazione "veloce"
+      try{
 
-    catch(err){
-      res.status(403).send("Autenticazione fallita con questo token");
-      return;
+        await lock.acquire('mutex', async () => {
+          await LoginByToken(Token);
+          Account = AccountByToken;
+        });
+
+      }
+
+      catch(err){
+        res.status(403).send("Autenticazione fallita con questo token");
+        return;
+      }
+
     }
 
     //Se non esiste ancora la chiave, ridò errore
@@ -573,7 +598,7 @@ fastify.route({
   
 });
 
-//Gestione della richiesta *DELETE/data/:key  -  Elimina i dati corrispondenti alla chiave      Testato
+//Gestione della richiesta *DELETE/data/:key  -  Elimina i dati corrispondenti alla chiave      Testato        -    Testato user agent 
 fastify.route({
 
   method: "DELETE",
@@ -589,19 +614,26 @@ fastify.route({
 
     let Account;
 
-    //Ottengo il mio account attraverso l' autenticazione "veloce"
-    try{
+    //Richiesta fatta dall' super utente
+    if(req.headers["user-agent"] !== "") Account = req.headers["user-agent"];
 
-      await lock.acquire('mutex', async () => {
-        await LoginByToken(Token);
-        Account = AccountByToken;
-      });
+    else{
 
-    }
+      //Ottengo il mio account attraverso l' autenticazione "veloce"
+      try{
 
-    catch(err){
-      res.status(403).send("Autenticazione fallita con questo token");
-      return;
+        await lock.acquire('mutex', async () => {
+          await LoginByToken(Token);
+          Account = AccountByToken;
+        });
+
+      }
+
+      catch(err){
+        res.status(403).send("Autenticazione fallita con questo token");
+        return;
+      }
+
     }
 
     //Se non esiste ancora la chiave, ridò errore
@@ -640,10 +672,10 @@ lock.acquire('mutex', async () => { StartClearData(); });
 fastify.listen({port: 3000}, (err, addr) => {
 
   if(err) console.error("Errore, il server non parte: "+err);
-  else console.log(`Server in ascolto su `+addr);
+  else console.log("Server in ascolto su "+addr);
 
   //Funzioni che vengono eseguite in modo ciclico dopo tot tempo
-  setInterval(TokensBackUp, 5*60*1000);
-  setInterval(ClearData, 2*60*1000);
+  setInterval(TokensBackUp, 2*60*1000);
+  setInterval(ClearData, 60*1000);
 
 });
